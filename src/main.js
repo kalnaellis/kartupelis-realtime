@@ -1,15 +1,72 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js';
+import { Room } from 'https://cdn.jsdelivr.net/npm/livekit-client@2.3.0/+esm';
+
+const RUNWAY_AVATAR_ID = 'cc3e04c0-5aef-471a-a95b-1cb25f7dc68e';
 
 const container = document.getElementById('app');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('start');
 
 // Video element for Runway output
 const video = document.createElement('video');
 video.autoplay = true;
 video.playsInline = true;
-video.muted = true; // autoplay-friendly; unmute after user interaction
+video.muted = true; // unmute after user interaction
 
-function createScene() {
+const { scene, camera, renderer } = createScene(container);
+createAvatar(scene, video);
+
+startBtn.addEventListener('click', start);
+
+animate();
+
+async function start() {
+  overlay.innerText = 'Starting Runway realtime session...';
+  startBtn.disabled = true;
+
+  try {
+    const res = await fetch('/api/runway', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ avatarId: RUNWAY_AVATAR_ID })
+    });
+
+    if (!res.ok) throw new Error('Runway API failed: ' + res.status);
+
+    const creds = await res.json();
+
+    const serverUrl = creds.serverUrl || creds.server_url || creds.url;
+    if (!serverUrl) throw new Error('Missing server URL');
+
+    overlay.innerText = 'Connecting to LiveKit...';
+
+    const room = new Room();
+
+    room.on('trackSubscribed', (track) => {
+      if (track.kind !== 'video') return;
+
+      const stream = new MediaStream([track.mediaStreamTrack]);
+      video.srcObject = stream;
+      overlay.innerText = 'Connected';
+
+      // Runway requires user gesture before audio can play
+      video.muted = false;
+    });
+
+    room.on('connectionStateChanged', (state) => {
+      overlay.innerText = `Connection: ${state}`;
+    });
+
+    await room.connect(serverUrl, creds.token, { autoSubscribe: true });
+  } catch (err) {
+    overlay.innerText = 'Error: ' + err.message;
+    startBtn.disabled = false;
+  }
+}
+
+function createScene(container) {
   const scene = new THREE.Scene();
+
   const camera = new THREE.PerspectiveCamera(
     75,
     container.clientWidth / container.clientHeight,
@@ -31,45 +88,21 @@ function createScene() {
   return { scene, camera, renderer };
 }
 
-function createAvatar(scene) {
-  const texture = new THREE.VideoTexture(video);
+function createAvatar(scene, videoEl) {
+  const texture = new THREE.VideoTexture(videoEl);
 
-  const geometry = new THREE.PlaneGeometry(1.6, 2.1);
-  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+  const geometry = new THREE.PlaneGeometry(1.5, 2);
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true
+  });
+
   const mesh = new THREE.Mesh(geometry, material);
   scene.add(mesh);
   return mesh;
 }
 
-async function startStream() {
-  try {
-    const res = await fetch('/api/runway', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ character: 'kartupelis', mode: 'realtime' })
-    });
-
-    const data = await res.json();
-    if (data.stream_url) {
-      video.src = data.stream_url;
-      await video.play().catch(() => {});
-    } else {
-      console.warn('No stream_url returned from /api/runway');
-    }
-  } catch (e) {
-    console.error('Failed to start Runway stream', e);
-  }
-}
-
-const { scene, camera, renderer } = createScene();
-const mesh = createAvatar(scene);
-
-// Subtle idle motion
 function animate() {
   requestAnimationFrame(animate);
-  mesh.rotation.y = Math.sin(Date.now() * 0.001) * 0.15;
   renderer.render(scene, camera);
 }
-animate();
-
-startStream();
