@@ -3,20 +3,248 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Kartupelis Realtime</title>
+    <title>Kartupelis Live</title>
+    <meta
+      name="description"
+      content="Kartupelis realtime avatar experience powered by Runway, LiveKit and Three.js."
+    />
     <style>
-      html, body { height: 100%; margin: 0; background:#0b0b10; color:#fff; }
-      #app { width: 100%; height: 100%; position: relative; overflow: hidden; }
-      .overlay { position:absolute; left:16px; top:16px; font-family: system-ui, sans-serif; opacity:.9; }
-      #start { position:absolute; right:16px; top:16px; padding:8px 12px; background:#fff; color:#0b0b10; border:0; border-radius:6px; font-family: system-ui, sans-serif; cursor:pointer; }
-      #start:disabled { opacity:.5; cursor:not-allowed; }
+      :root {
+        color-scheme: dark;
+        --bg0: #06070a;
+        --bg1: #0f1320;
+        --line: rgba(255, 255, 255, 0.09);
+        --text: #f3f5f8;
+        --muted: rgba(243, 245, 248, 0.7);
+        --accent: #ffd54a;
+        --danger: #ff7f7f;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        height: 100%;
+        background:
+          radial-gradient(circle at 20% 20%, rgba(255, 213, 74, 0.08), transparent 30%),
+          radial-gradient(circle at 80% 30%, rgba(117, 146, 255, 0.09), transparent 35%),
+          linear-gradient(180deg, var(--bg1), var(--bg0));
+        color: var(--text);
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        overflow: hidden;
+      }
+
+      #app {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      canvas {
+        display: block;
+      }
+
+      .hud {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .topbar,
+      .panel,
+      .credit {
+        backdrop-filter: blur(12px);
+        background: rgba(9, 12, 18, 0.45);
+        border: 1px solid var(--line);
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
+      }
+
+      .topbar {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        min-width: 260px;
+        max-width: min(520px, calc(100vw - 40px));
+        padding: 14px 16px;
+        border-radius: 18px;
+      }
+
+      .eyebrow {
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--accent);
+        opacity: 0.9;
+        margin-bottom: 8px;
+      }
+
+      .title {
+        font-size: clamp(22px, 3vw, 38px);
+        font-weight: 800;
+        line-height: 1.04;
+        margin: 0 0 8px;
+      }
+
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .panel {
+        position: absolute;
+        right: 20px;
+        bottom: 20px;
+        width: min(380px, calc(100vw - 40px));
+        padding: 16px;
+        border-radius: 20px;
+        pointer-events: auto;
+      }
+
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.4;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: #8c98a8;
+        box-shadow: 0 0 18px rgba(140, 152, 168, 0.55);
+        flex: 0 0 auto;
+      }
+
+      .dot.is-live {
+        background: #5cff9b;
+        box-shadow: 0 0 18px rgba(92, 255, 155, 0.65);
+      }
+
+      .dot.is-error {
+        background: var(--danger);
+        box-shadow: 0 0 18px rgba(255, 127, 127, 0.65);
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        padding: 12px 15px;
+        border-radius: 14px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+      }
+
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.13);
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      button.primary {
+        background: linear-gradient(180deg, rgba(255, 213, 74, 0.95), rgba(237, 181, 29, 0.95));
+        color: #17120a;
+        border-color: rgba(255, 213, 74, 0.65);
+      }
+
+      button.primary:hover:not(:disabled) {
+        background: linear-gradient(180deg, rgba(255, 224, 112, 0.98), rgba(244, 188, 39, 0.98));
+      }
+
+      .note {
+        margin-top: 12px;
+        font-size: 12px;
+        color: rgba(243, 245, 248, 0.52);
+        line-height: 1.45;
+      }
+
+      .credit {
+        position: absolute;
+        left: 20px;
+        bottom: 20px;
+        padding: 10px 12px;
+        border-radius: 14px;
+        font-size: 12px;
+        color: rgba(243, 245, 248, 0.6);
+      }
+
+      @media (max-width: 720px) {
+        .topbar {
+          top: 14px;
+          left: 14px;
+          right: 14px;
+          max-width: none;
+        }
+
+        .panel {
+          left: 14px;
+          right: 14px;
+          bottom: 14px;
+          width: auto;
+        }
+
+        .credit {
+          display: none;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="app">
-      <div id="overlay" class="overlay">Kartupelis realtime</div>
-      <button id="start">Start</button>
+      <div class="hud">
+        <div class="topbar">
+          <div class="eyebrow">Kartupelis.tv / atmošanās</div>
+          <h1 class="title">Kartupelis is waking up</h1>
+          <p class="subtitle">
+            Realtime Runway character, streamed through LiveKit and placed inside a Three.js stage.
+            Because apparently a normal website was too boring.
+          </p>
+        </div>
+
+        <div class="panel">
+          <div class="status">
+            <span id="status-dot" class="dot"></span>
+            <span id="status-text">Ready to connect.</span>
+          </div>
+
+          <div class="controls">
+            <button id="start-btn" class="primary">Start character</button>
+            <button id="audio-btn" disabled>Unmute</button>
+            <button id="stop-btn" disabled>Stop session</button>
+          </div>
+
+          <div class="note">
+            The session is created server-side so your Runway key stays off the frontend, where it belongs.
+          </div>
+        </div>
+
+        <div class="credit">Runway avatars · LiveKit · Three.js</div>
+      </div>
     </div>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
