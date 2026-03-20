@@ -3,12 +3,16 @@ const RUNWAY_VERSION = "2024-11-06";
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function call(token, path, options) {
+async function call(path, options) {
   const res = await fetch(BASE_URL + path, options);
   if (!res.ok) {
     return { ok: false, status: res.status, body: await res.text() };
   }
-  return { ok: true, json: await res.json() };
+  try {
+    return { ok: true, json: await res.json() };
+  } catch (e) {
+    return { ok: true, json: null };
+  }
 }
 
 export default async function handler(req, res) {
@@ -26,7 +30,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "missing_avatarId" });
   }
 
-  const create = await call(apiKey, "/v1/realtime_sessions", {
+  const create = await call("/v1/realtime_sessions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -35,30 +39,28 @@ export default async function handler(req, res) {
     },
     body: JSON.stringify({
       model: "gwm1_avatars",
-      input: {
-        avatar: {
-          preset: "custom",
-          avatarId,
-        },
-      },
+      avatar: { type: "custom", avatarId: avatarId },
       useWebRTC: true,
     }),
   });
 
   if (!create.ok) {
-    return res
-      .status(create.status)
-      .json({ error: "create_session_failed", details: create.body });
+    return res.status(create.status).json({
+      error: "create_session_failed",
+      details: create.body,
+    });
   }
 
   const sessionId = create.json?.id;
   if (!sessionId) {
-    return res.status(500).json({ error: "missing_session_id", details: create.json });
+    return res
+      .status(500)
+      .json({ error: "missing_session_id", details: create.json });
   }
 
   let sessionKey;
   for (let i = 0; i < 30; i++) {
-    const poll = await call(apiKey, "/v1/realtime_sessions/" + sessionId, {
+    const poll = await call("/v1/realtime_sessions/" + sessionId, {
       headers: {
         Authorization: "Bearer " + apiKey,
         "X-Runway-Version": RUNWAY_VERSION,
@@ -66,32 +68,26 @@ export default async function handler(req, res) {
     });
 
     if (!poll.ok) {
-      return res
-        .status(poll.status)
-        .json({ error: "retrieve_session_failed", details: poll.body });
+      return res.status(poll.status).json({
+        error: "poll_session_failed",
+        details: poll.body,
+      });
     }
 
-    const sess = poll.json;
-    if (sess.status === "READY") {
-      sessionKey = sess.sessionKey;
+    const status = poll.json?.status;
+    if (status === "READY") {
+      sessionKey = poll.json?.sessionKey;
       break;
-    }
-
-    if (sess.status === "FAILED") {
-      return res
-        .status(500)
-        .json({ error: "session_failed", details: sess.failure || sess });
     }
 
     await wait(1000);
   }
 
   if (!sessionKey) {
-    return res.status(504).json({ error: "session_timeout" });
+    return res.status(504).json({ error: "session_not_ready" });
   }
 
   const consume = await call(
-    sessionKey,
     "/v1/realtime_sessions/" + sessionId + "/consume",
     {
       method: "POST",
@@ -103,16 +99,17 @@ export default async function handler(req, res) {
   );
 
   if (!consume.ok) {
-    return res
-      .status(consume.status)
-      .json({ error: "consume_failed", details: consume.body });
+    return res.status(consume.status).json({
+      error: "consume_session_failed",
+      details: consume.body,
+    });
   }
 
-  const creds = consume.json;
+  const credentials = consume.json?.credentials || {};
   return res.status(200).json({
     sessionId,
-    serverUrl: creds.url,
-    token: creds.token,
-    roomName: creds.roomName,
+    serverUrl: credentials.url || credentials.serverUrl,
+    token: credentials.token,
+    roomName: credentials.roomName,
   });
 }
